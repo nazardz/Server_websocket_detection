@@ -15,11 +15,20 @@ PORT = 8080
 pr_list = []
 cam_counter = 0
 
+# TODO
+# группировка камер,
+# вернуть адресс камер+название на сервер и передать их клиенту
+# проверка своюодного места
+# отправка видео файла
+
 
 class Server:
     sender_client = None
     # camera_clients = set()
     all_clients = set()
+    # response_list = []
+    # waiter = 0
+    # NUM = 0
 
     # ругистр всех клиентов подключенных к серверу
     async def register(self, ws: WebSocketServerProtocol):
@@ -59,6 +68,15 @@ class Server:
         await self.sender_client.send(data)
         logging.info(f'{self.sender_client.remote_address} send message to.')
 
+    async def init_sender(self, ws, data):
+        res = json.dumps({"Status": True})
+        err = json.dumps({"Status": False})
+        await self.send_to_camera(data)
+        if len(self.all_clients) > 1:
+            await ws.send(res)
+        else:
+            await ws.send(err)
+
     # обработчик сообщении
     async def distribute(self, ws: WebSocketServerProtocol):
         async for message in ws:
@@ -67,25 +85,43 @@ class Server:
             # сохранения события
             event = data['event']
             logging.info(f'{ws.remote_address} receive message from.')
+            res = json.dumps({"Status": True})
 
             # send to camera -->
             if event == 'start_detection':
                 self.sender_client = ws
                 await start_detection(data)
+                await ws.send(res)
             elif event == 'switch_detection':
-                await self.send_to_camera(data)
+                await self.init_sender(ws, data)
             elif event == 'change_treshold':
-                await self.send_to_camera(data)
+                await self.init_sender(ws, data)
             elif event == 'change_max_boxes':
-                await self.send_to_camera(data)
+                await self.init_sender(ws, data)
             elif event == 'change_detection_type':
-                await self.send_to_camera(data)
+                await self.init_sender(ws, data)
             elif event == 'finish_detection':
-                await self.send_to_camera(data)
+                await self.init_sender(ws, data)
 
             # send to client
             elif event == 'object_detected':
                 await self.send_to_sender(data)
+
+            # # send response from cam
+            # elif event == 'response':
+            #     self.response_list.append(1)
+            #     if len(self.response_list) == len(self.all_clients)-1 and self.waiter < self.NUM:
+            #         await self.send_to_sender({"Response": data['data'], "Status": "True"})
+            #         self.response_list = []
+            #         self.waiter = 0
+            #     elif self.waiter < self.NUM:
+            #         self.waiter += 1
+            #         await asyncio.sleep(1)
+            #     elif self.waiter >= self.NUM:
+            #         res = json.dumps({"Response": data['data'], "Status": "False"})
+            #         await self.send_to_sender(res)
+            #         self.response_list = []
+            #         self.waiter = 0
 
             # edit events
 
