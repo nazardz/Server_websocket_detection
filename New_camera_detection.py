@@ -127,6 +127,8 @@ async def start_detection_on_cam():
     async with websockets.connect(SERV_ADDRESS) as websocket:
         # data_join = json.dumps({"event": "join_camera_client"})
         # await websocket.send(data_join)
+        msg = json.dumps({"event": "detection_start", "source": RTSP})
+        await websocket.send(msg)
 
         logging.info(f'{RTSP} start stream...')
         vs = VideoStream(RTSP).start()
@@ -172,6 +174,8 @@ async def start_detection_on_cam():
         # cv2.destroyWindow(RTSP)
         # ####
         logging.info(f'{RTSP} end stream...')
+        msg = json.dumps({"event": "detection_end", "source": RTSP})
+        await websocket.send(msg)
         vs.stop()
 
 
@@ -200,22 +204,30 @@ async def message_handler(ws):
     message = await asyncio.wait_for(ws.recv(), timeout=0.1)
     message = json.loads(message)
     event = message['event']
+    response = json.dumps({'event': 'response', 'rec': event, 'status': True, 'source': RTSP})
     if event == 'switch_detection':
         logging.info(f'changed detection from {DETECTION_CAM} to {message["data"]}')
         DETECTION_CAM = message['data']
+        await message_producer(ws, response)
     elif event == 'change_max_boxes':
         logging.info(f'changed max boxes from {MAX_BOXES} to {message["data"]}')
         MAX_BOXES = message['data']
+        await message_producer(ws, response)
     elif event == 'change_treshold':
         logging.info(f'changed threshold from {THRESHOLD} to {message["data"]}')
         THRESHOLD = message['data']
+        await message_producer(ws, response)
     elif event == 'change_detection_type':
         logging.info(f'changed class types from {CLASS_TYPES} to {message["data"]}')
         CLASS_TYPES = message['data']
+        await message_producer(ws, response)
     elif event == 'finish_detection':
         RUN_PROC = False
+    else:
+        response = json.dumps({'event': 'response', 'rec': event, 'status': False, 'source': RTSP})
+        await message_producer(ws, response)
 
 
 async def message_producer(ws, data):
     await ws.send(data)
-    logging.info(f'{SERV_ADDRESS} send message to')
+    # logging.info(f'{SERV_ADDRESS} send message to')

@@ -24,11 +24,9 @@ cam_counter = 0
 
 class Server:
     sender_client = None
-    # camera_clients = set()
+    camera_clients = set()
     all_clients = set()
-    # response_list = []
-    # waiter = 0
-    # NUM = 0
+    response = []
 
     # ругистр всех клиентов подключенных к серверу
     async def register(self, ws: WebSocketServerProtocol):
@@ -54,10 +52,9 @@ class Server:
     # отправка команды на камеру
     async def send_to_camera(self, data=None):
         data = json.dumps(data)
-        for client in self.all_clients:
-            if client != self.sender_client:
-                await client.send(data)
-                logging.info(f'{client.remote_address} send message to.')
+        for client in self.camera_clients:
+            await client.send(data)
+            logging.info(f'{client.remote_address} send message to.')
         # if self.camera_clients:
         #     for client in self.camera_clients:
         #         await client.send(data)
@@ -68,15 +65,6 @@ class Server:
         await self.sender_client.send(data)
         logging.info(f'{self.sender_client.remote_address} send message to.')
 
-    async def init_sender(self, ws, data):
-        res = json.dumps({"Status": True})
-        err = json.dumps({"Status": False})
-        await self.send_to_camera(data)
-        if len(self.all_clients) > 1:
-            await ws.send(res)
-        else:
-            await ws.send(err)
-
     # обработчик сообщении
     async def distribute(self, ws: WebSocketServerProtocol):
         async for message in ws:
@@ -85,47 +73,66 @@ class Server:
             # сохранения события
             event = data['event']
             logging.info(f'{ws.remote_address} receive message from.')
-            res = json.dumps({"Status": True})
+            res = json.dumps({"status": True})
 
-            # send to camera -->
+            # сообщение камере -->
             if event == 'start_detection':
                 self.sender_client = ws
                 await start_detection(data)
                 await ws.send(res)
             elif event == 'switch_detection':
-                await self.init_sender(ws, data)
+                if self.sender_client is not None:
+                    await self.send_to_camera(data)
+                else:
+                    res = json.dumps({"status": False})
+                    await ws.send(res)
             elif event == 'change_treshold':
-                await self.init_sender(ws, data)
+                if self.sender_client is not None:
+                    await self.send_to_camera(data)
+                else:
+                    res = json.dumps({"status": False})
+                    await ws.send(res)
             elif event == 'change_max_boxes':
-                await self.init_sender(ws, data)
+                if self.sender_client is not None:
+                    await self.send_to_camera(data)
+                else:
+                    res = json.dumps({"status": False})
+                    await ws.send(res)
             elif event == 'change_detection_type':
-                await self.init_sender(ws, data)
+                if self.sender_client is not None:
+                    await self.send_to_camera(data)
+                else:
+                    res = json.dumps({"status": False})
+                    await ws.send(res)
             elif event == 'finish_detection':
-                await self.init_sender(ws, data)
-
-            # send to client
+                if self.sender_client is not None:
+                    await self.send_to_camera(data)
+                else:
+                    res = json.dumps({"status": False})
+                    await ws.send(res)
+            # ответ клиенту
             elif event == 'object_detected':
                 await self.send_to_sender(data)
+            elif event == 'detection_start':
+                self.camera_clients.add(ws)
+                logging.info(f'{ws.remote_address} add to camera list.')
+                # if cam_counter == len(self.camera_clients):
+                # await self.send_to_sender({'result': self.camera_clients})
+            elif event == 'detection_end':
+                self.camera_clients.remove(ws)
+                logging.info(f'{ws.remote_address} remove from camera list.')
+            elif data['event'] == 'response':
+                del data['event']
+                data.update({'event': data['rec']})
+                del data['rec']
+                self.response.append(data)
+                if len(self.response) >= len(self.camera_clients):
+                    # send response
+                    await self.send_to_sender({'result': self.response})
+                    self.response = []
+                    logging.info(f'send response from cameras.')
 
-            # # send response from cam
-            # elif event == 'response':
-            #     self.response_list.append(1)
-            #     if len(self.response_list) == len(self.all_clients)-1 and self.waiter < self.NUM:
-            #         await self.send_to_sender({"Response": data['data'], "Status": "True"})
-            #         self.response_list = []
-            #         self.waiter = 0
-            #     elif self.waiter < self.NUM:
-            #         self.waiter += 1
-            #         await asyncio.sleep(1)
-            #     elif self.waiter >= self.NUM:
-            #         res = json.dumps({"Response": data['data'], "Status": "False"})
-            #         await self.send_to_sender(res)
-            #         self.response_list = []
-            #         self.waiter = 0
-
-            # edit events
-
-            # если event не сооьветствует не одному из команд
+            # если event не соответствует не одному из команд
             else:
                 res = json.dumps({"error": f"Invalid message. Event <{event}> doesn't exist"})
                 await ws.send(res)
